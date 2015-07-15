@@ -1,5 +1,6 @@
 package com.arleckk.s_cool;
 
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -14,15 +15,20 @@ import android.widget.Toast;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.conn.params.ConnManagerPNames;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.params.BasicHttpParams;
 import org.apache.http.params.CoreConnectionPNames;
 import org.apache.http.params.HttpParams;
+import org.apache.http.util.EntityUtils;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -31,6 +37,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends ActionBarActivity implements View.OnClickListener{
 
@@ -43,6 +51,8 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
     String json;
     String verificar;
     SessionManager session;
+    ProgressDialog pDialog;
+    String departamento;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,7 +88,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
     class Login extends AsyncTask<String,String,String> {
 
-
         @Override
         protected String doInBackground(String... params) {
             JSONObject parametros = new JSONObject();
@@ -91,6 +100,8 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
             try {
                 JSONObject jsonObject = makeHttpRequest(LOGIN_URL, "GET", parametros.toString());
                 verificar = jsonObject.getString("estado");
+                //departamento = obtenerDepartamento("http://scool.byethost24.com/departamento.php", obtenerDato(editTextUser), obtenerDato(editTextPassword));
+                Log.i("departamento","departamento= "+departamento);
             } catch (JSONException e1) {
                 e1.printStackTrace();
             }
@@ -99,10 +110,24 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         }//doInBackground
 
         @Override
+        protected void onPreExecute(){
+            super.onPreExecute();
+            pDialog = new ProgressDialog(MainActivity.this);
+            pDialog.setMessage("Entrando, espere un momento." );
+            pDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER);
+            pDialog.setCancelable(false);
+            pDialog.show();
+        }
+
+        @Override
         protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+            pDialog.dismiss();
             if(verificar.equals("1")){
                 Toast.makeText(MainActivity.this, R.string.login_exito, Toast.LENGTH_SHORT).show();
                 Intent intent = new Intent (MainActivity.this,HomeActivity.class);
+                intent.putExtra("usuario",obtenerDato(editTextUser));
+                //intent.putExtra("departamento","departamento= "+departamento);
                 finish();
                 startActivity(intent);
                 session.createLoginSession("S-Cool",obtenerDato(editTextUser));
@@ -204,6 +229,33 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
             jObj = null;
         }
         return jObj;
+    }
+
+    public String obtenerDepartamento(String url,String usuario,String password){
+
+        try {
+        HttpClient httpClient = new DefaultHttpClient();
+        HttpPost httpPost = new HttpPost(url);
+        List<NameValuePair> params = new ArrayList<NameValuePair>();
+        params.add(new BasicNameValuePair("usuario",obtenerDato(editTextUser)));
+        params.add(new BasicNameValuePair("password", obtenerDato(editTextPassword)));
+            httpPost.setEntity(new UrlEncodedFormEntity(params));
+            HttpResponse response = httpClient.execute(httpPost);
+            HttpEntity ent = response.getEntity();
+            String respuesta = EntityUtils.toString(ent);
+            Log.i("departamento","departamento= "+respuesta);
+            return respuesta;
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+            return null;
+        } catch (ClientProtocolException e) {
+            e.printStackTrace();
+            return null;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+
     }
 
     private static HttpParams conectionParams() {

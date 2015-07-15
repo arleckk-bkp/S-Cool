@@ -15,19 +15,23 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.ListView;
 import android.widget.Toast;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.conn.params.ConnManagerPNames;
-import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.params.BasicHttpParams;
 import org.apache.http.params.CoreConnectionPNames;
 import org.apache.http.params.HttpParams;
@@ -46,9 +50,11 @@ import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 
-public class HomeActivity extends AppCompatActivity {
+public class HomeActivity extends AppCompatActivity implements AdapterView.OnItemClickListener{
 
     /**
      * Instancia del drawer
@@ -62,18 +68,28 @@ public class HomeActivity extends AppCompatActivity {
     private Button btnSubirArchivo;
     protected static final int REQUEST_CODE_PICK_FILE_TO_OPEN = 1;
     private static final String LOGIN_URL = "http://scool.byethost24.com/uploadfile.php";
+    private static final String REGISTRO_ARCHIVO_URL = "http://scool.byethost24.com/registro_archivo.php";
+    private static final String ARCHIVO_URL = "http://scool.byethost24.com/archivo.php";
+    private static final String LISTA_URL = "http://scool.byethost24.com/archivo_listview.php";
     String rutaArchivo;
     File file;
     String verificar;
-    String json;
-    InputStream is;
-    JSONObject jObj;
+    static String json;
+    static InputStream is;
+    static JSONObject jObj;
     ProgressDialog pDialog;
+    String respuesta;
+    Bundle bundle;
+    ArchivoAdapter archivoAdapter;
+    ListView listaArchivo;
+    ArrayList<Archivo> lista;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
+        listaArchivo = (ListView) findViewById(R.id.lista_archivo);
         setToolbar(); // Setear Toolbar como action bar
         drawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);
         NavigationView navigationView = (NavigationView) findViewById(R.id.nav_view);
@@ -81,10 +97,12 @@ public class HomeActivity extends AppCompatActivity {
         btnSubirArchivo.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Intent intent = new Intent("com.estrongs.action.PICK_FILE");
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.setType("file/*");
                 startActivityForResult(intent, REQUEST_CODE_PICK_FILE_TO_OPEN);
             }
         });
+
         if (navigationView != null) {
             setupDrawerContent(navigationView);
         }
@@ -93,6 +111,11 @@ public class HomeActivity extends AppCompatActivity {
         if (savedInstanceState == null) {
             selectItem(drawerTitle);
         }
+        listaArchivo.setOnItemClickListener(this);
+        CrearListView crearListView = new CrearListView();
+        crearListView.execute();
+
+
 
     }
 
@@ -174,6 +197,16 @@ public class HomeActivity extends AppCompatActivity {
                 break;
         }//switch
     }//onActivityResult
+
+    @Override
+    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+        lista.get(position).getURL();
+        String url = "http://scool.byethost24.com/"+lista.get(position).getURL();
+        Log.i("URL",url);
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setData(Uri.parse(url));
+        startActivity(i);
+    }
 
     class HttpFileUploader {
 
@@ -280,14 +313,24 @@ public class HomeActivity extends AppCompatActivity {
 
     class UploadFile extends AsyncTask<String,String,String>{
 
-
+        @Override
+        protected void onPreExecute(){
+            super.onPreExecute();
+            pDialog = new ProgressDialog(HomeActivity.this);
+            pDialog.setMessage("Subiendo el archivo espere." );
+            pDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER);
+            pDialog.setCancelable(false);
+            pDialog.show();
+        }
 
         @Override
         protected String doInBackground(String... params) {
             HttpFileUploader uploader = new HttpFileUploader(LOGIN_URL, file.getName());
             try {
                 uploader.doStart(new FileInputStream(file.getPath()));
-                Log.i("buscar_path",file.getParent());
+                respuesta = insertarRegistro(REGISTRO_ARCHIVO_URL, file.getName());
+                Log.i("registro_archivo","Respuesta: "+respuesta);
+                Log.i("buscar_path", file.getParent());
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
             }
@@ -296,12 +339,185 @@ public class HomeActivity extends AppCompatActivity {
 
         @Override
         protected void onPostExecute(String result){
+            super.onPostExecute(result);
+            pDialog.dismiss();
             Toast.makeText(HomeActivity.this, "El archivo se agrego con exito", Toast.LENGTH_SHORT).show();
-            Log.i("ArchivoExito","El archivo se agrego con exito");
-        }
+            new CrearListView().execute();
+            Log.i("ArchivoExito", "El archivo se agrego con exito");
+            if(respuesta.equals("1")){
+                Log.i("registro_archivo", "se actualizo con exito");
+            } else {
+                Log.i("registro_archivo","revisar base de datos");
+            }
+        }//PostExecute
+    }//Clase UploadFile
 
+    class CrearListView extends AsyncTask<ArrayList, ArrayList, ArrayList<Archivo>> {
+
+        @Override
+        protected ArrayList<Archivo> doInBackground(ArrayList... params) {
+
+            JSONObject jsonObject = makeHttpRequest(LISTA_URL,"POST",null);
+            String nombreArchivo="",usuario="",fecha="",url="";
+            lista = new ArrayList<Archivo>();
+            try {
+                Log.i("estodevuelveelJSON",jsonObject.getJSONObject(String.valueOf("0")).getString("nombre_a"));
+                for(int i=0;i<jsonObject.length();i++){
+                    nombreArchivo = jsonObject.getJSONObject(String.valueOf(i)).getString("nombre_a");
+                    usuario =  jsonObject.getJSONObject(String.valueOf(i)).getString("autor");
+                    fecha = jsonObject.getJSONObject(String.valueOf(i)).getString("fecha");
+                    url =  jsonObject.getJSONObject(String.valueOf(i)).getString("URL");
+                    Log.i("estodevuelveelJSON",nombreArchivo+usuario+fecha+url);
+                    lista.add(new Archivo(nombreArchivo,fecha,usuario,url));
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+                Log.i("estodevuelveelJSON", "ERROR");
+            }
+            return lista;
+        }
+        @Override
+        protected void onPostExecute(ArrayList<Archivo> result){
+            archivoAdapter = new ArchivoAdapter(HomeActivity.this,lista);
+            listaArchivo.setAdapter(archivoAdapter);
+        }
     }
 
+    public String insertarRegistro(String url, String fileName){
+        HttpClient httpClient;
+        HttpPost httpPost;
+        List<NameValuePair> params = new ArrayList<NameValuePair>();
+        httpClient = new DefaultHttpClient();
+        httpPost = new HttpPost(url);
+        Bundle extras = getIntent().getExtras();
+        params.add(new BasicNameValuePair("usuario",extras.getString("usuario")));
+        params.add(new BasicNameValuePair("accion","agrego"));
+        params.add(new BasicNameValuePair("nom_archivo",fileName));
+        params.add(new BasicNameValuePair("estado","activo"));
+        params.add(new BasicNameValuePair("lista_u",extras.getString("usuario")));
+        params.add(new BasicNameValuePair("lista_d",extras.getString("departamento")));
+        try{
+            httpPost.setEntity(new UrlEncodedFormEntity(params));
+            httpClient.execute(httpPost);
+            return "1";
+        }  catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+            return null;
+        } catch (ClientProtocolException e) {
+            e.printStackTrace();
+            return null;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    } //insetarRegistro
+
+    private static JSONObject makeHttpRequest(String url, String method,
+                                              String params) {
+        try {
+
+            if (method == "POST") {
+
+                HttpParams httpParameters = HomeActivity.conectionParams();
+
+                DefaultHttpClient httpClient = new DefaultHttpClient(
+                        httpParameters);
+
+                HttpPost httpPost = new HttpPost(url);
+
+                if( params != null )
+                {
+                    StringEntity entity = new StringEntity(params, "UTF-8");
+                    entity.setContentEncoding("UTF-8");
+                    httpPost.setEntity(entity);
+                }
+
+                httpPost.setHeader("Accept", "application/json");
+                httpPost.setHeader("Content-type",
+                        "application/json; charset=UTF-8");
+                HttpResponse httpResponse = httpClient.execute(httpPost);
+                HttpEntity httpEntity = httpResponse.getEntity();
+                is = httpEntity.getContent();
+
+            }else if(method == "GET"){
+//					HttpParams httpParameters = WebServices.conectionParams();
+//
+//					DefaultHttpClient httpClient = new DefaultHttpClient(
+//						httpParameters);
+//		            HttpGet httpGet = new HttpGet(url + "?");
+//		            httpGet.setHeader("Accept", "application/json");
+//		            httpGet.setHeader("Content-type",
+//							"application/json; charset=UTF-8");
+//		            HttpResponse httpResponse = httpClient.execute(httpGet);
+//					HttpEntity httpEntity = httpResponse.getEntity();
+//					is = httpEntity.getContent();
+            }
+
+        } catch (UnsupportedEncodingException e) {
+            Log.i("WebServices ","UnsupportedEncodingException: "+e);
+        } catch (ClientProtocolException e) {
+            Log.i("WebServices ","ClientProtolocoException: "+e);
+        } catch (IOException e) {
+            Log.i("WebServices ","IOException: "+e);
+        }
+
+        try {
+
+
+            if(is!=null){
+                Log.i("WebServices ","is abierto");
+            }else{
+                Log.i("WebServices ","is cerrado");
+            }
+            Log.i("WebServices ","instanciando BufferedReader");
+
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    is, "UTF-8"), 8);
+
+
+            StringBuilder sb = new StringBuilder();
+            String line = null;
+
+
+            Log.i("WebServices ","recorriendo reader");
+            while ((line = reader.readLine()) != null) {
+
+                sb.append(line + "\n");
+            }
+
+            if(is!=null)
+                is.close();
+
+            json = sb.toString();
+            Log.i("WebServices ","http json: "+sb.toString());
+        } catch (Exception e) {
+            Log.e("WebServices ","http json exception: "+e);
+            return jObj = null;
+        }
+
+        try {
+            jObj = new JSONObject(json);
+            Log.i("WebServices ","http json object: "+jObj.toString());
+        } catch (JSONException e) {
+            Log.e("WebServices ","http json object exception: "+e);
+            jObj = null;
+        }
+        return jObj;
+    }
+    private static HttpParams conectionParams() {
+
+        HttpParams httpParameters = new BasicHttpParams();
+
+        httpParameters.setIntParameter(CoreConnectionPNames.CONNECTION_TIMEOUT,
+                240000);
+        httpParameters.setIntParameter(CoreConnectionPNames.SO_TIMEOUT,
+                240000);
+        httpParameters.setLongParameter(ConnManagerPNames.TIMEOUT,
+                240000);
+
+        return httpParameters;
+    }
 
 
 }//home activity
